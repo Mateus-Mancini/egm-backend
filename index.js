@@ -1,5 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
+
+const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
@@ -19,6 +21,8 @@ const pool = new Pool({
     rejectUnauthorized: false,
   },
 });
+
+app.use(cors());
 
 app.get('/api/students', async (req, res) => {
     let query = `SELECT STUDENT.*, yearId, gradeId FROM STUDENT 
