@@ -1,5 +1,6 @@
 const express = require('express');
 const { Pool } = require('pg');
+const cheerio = require('cheerio');
 
 const cors = require('cors');
 require('dotenv').config();
@@ -36,6 +37,24 @@ app.get('/api/students', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Database query failed' });
+    }
+});
+
+app.get('/api/ra', async (req, res) => {
+    const { url } = req.query;
+
+    const response = await fetch(url);
+    const html = await response.text();
+
+    const $ = cheerio.load(html);
+
+    const targetDiv = $('label').filter((_, el) => $(el).text().trim() === 'Número da RA:').first();
+
+    const nextDiv = targetDiv.next('label');
+    if (nextDiv.length) {
+        res.json({ ra: nextDiv.text().split('-')[0].trim() })
+    } else {
+        res.status(500).json({ error: 'RA not found.' });
     }
 });
 
