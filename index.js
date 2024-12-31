@@ -86,6 +86,8 @@ app.get('/api/grades', async (req, res) => {
         queryParams.push(yearId);
     }
 
+    query += ' GROUP BY GRADE.ID ORDER BY GRADE.NUMBER';
+
     try {
         const result = await pool.query(query, queryParams);
         res.json(result.rows);
@@ -183,7 +185,61 @@ app.post("/api/upload/classes", upload.single("file"), async (req, res) => {
       console.error(error);
       res.status(500).json({ error: "Error processing file" });
     }
-  });
+});
+
+app.post("/api/upload/students", upload.single("file"), async (req, res) => {
+  try {
+    const filePath = req.file.path;
+    const workbook = xlsx.readFile(filePath);
+    const sheetName = workbook.SheetNames[0];
+    const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const batchSize = 100; // Number of rows per batch
+      for (let i = 0; i < sheetData.length; i += batchSize) {
+        const batch = sheetData.slice(i, i + batchSize);
+
+        // Prepare the data for insertion
+        const values = batch.map(row => [
+          row.ra,
+          row.name,
+          row.digit,
+          row.class_id,
+        ]);
+
+        // Generate placeholders for the query
+        const placeholders = values
+          .map(
+            (_, index) =>
+              `($${index * 4 + 1}, $${index * 4 + 2}, $${index * 4 + 3}, $${index * 4 + 4})`
+          )
+          .join(", ");
+
+        // Flatten the values array for query parameters
+        const flatValues = values.flat();
+
+        // Insert into the database
+        const query = `INSERT INTO student (ra, name, digit, class_id) VALUES ${placeholders}`;
+        await client.query(query, flatValues);
+      }
+
+      await client.query("COMMIT");
+      res.status(200).json({ message: "Data inserted successfully!" });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      console.error("Transaction Error:", error);
+      res.status(500).json({ error: "Failed to insert data" });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error("File Processing Error:", error);
+    res.status(500).json({ error: "Error processing file" });
+  }
+});
 
 // Start Server
 app.listen(port, () => {
