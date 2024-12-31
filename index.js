@@ -1,4 +1,6 @@
 const express = require('express');
+const multer = require('multer');
+const xlsx = require('xlsx');
 const { Pool } = require('pg');
 const cheerio = require('cheerio');
 
@@ -6,6 +8,7 @@ const cors = require('cors');
 require('dotenv').config();
 
 const app = express();
+const upload = multer({ dest: 'uploads/' })
 const port = 3000;
 
 // Middleware
@@ -26,10 +29,10 @@ const pool = new Pool({
 app.use(cors());
 
 app.get('/api/students', async (req, res) => {
-    let query = `SELECT STUDENT.*, yearId, gradeId FROM STUDENT 
-        JOIN CLASS ON CLASS.id = STUDENT.classId
-        JOIN SCHOOLYEAR ON SCHOOLYEAR.id = CLASS.yearId
-        JOIN GRADE ON GRADE.id = CLASS.gradeId`;
+    let query = `SELECT STUDENT.*, year_id, grade_id FROM STUDENT 
+        JOIN CLASS ON CLASS.id = STUDENT.class_id
+        JOIN SCHOOL_YEAR ON SCHOOL_YEAR.id = CLASS.year_id
+        JOIN GRADE ON GRADE.id = CLASS.grade_id`;
 
     try {
         const result = await pool.query(query);
@@ -60,7 +63,7 @@ app.get('/api/ra', async (req, res) => {
 
 app.get('/api/years', async (req, res) => {
     try {
-        const result = await pool.query('SELECT * FROM SCHOOLYEAR');
+        const result = await pool.query('SELECT * FROM SCHOOL_YEAR');
         res.json(result.rows);
     } catch (err) {
         console.error(err);
@@ -73,13 +76,13 @@ app.get('/api/grades', async (req, res) => {
 
     let query = `
         SELECT GRADE.* FROM GRADE
-        JOIN CLASS ON CLASS.gradeId = GRADE.id
-        JOIN SCHOOLYEAR ON SCHOOLYEAR.id = CLASS.yearId
+        JOIN CLASS ON CLASS.grade_id = GRADE.id
+        JOIN SCHOOL_YEAR ON SCHOOL_YEAR.id = CLASS.year_id
     `;
     const queryParams = [];
 
     if (yearId) {
-        query += ' WHERE SCHOOLYEAR.id = $1';
+        query += ' WHERE SCHOOL_YEAR.id = $1';
         queryParams.push(yearId);
     }
 
@@ -97,15 +100,15 @@ app.get('/api/classes', async (req, res) => {
 
     let query = `
         SELECT CLASS.* FROM CLASS
-        JOIN GRADE ON CLASS.gradeId = GRADE.id
-        JOIN SCHOOLYEAR ON SCHOOLYEAR.id = CLASS.yearId
+        JOIN GRADE ON CLASS.grade_id = GRADE.id
+        JOIN SCHOOL_YEAR ON SCHOOL_YEAR.id = CLASS.year_id
     `;
     const queryParams = [];
     let conditions = [];
 
     if (yearId) {
         queryParams.push(yearId);
-        conditions.push(`SCHOOLYEAR.id = $${queryParams.length}`);
+        conditions.push(`SCHOOL_YEAR.id = $${queryParams.length}`);
     }
     if (gradeId) {
         queryParams.push(gradeId);
@@ -124,6 +127,63 @@ app.get('/api/classes', async (req, res) => {
         res.status(500).json({ error: 'Database query failed' });
     }
 });
+
+app.post("/api/upload/classes", upload.single("file"), async (req, res) => {
+    try {
+      const filePath = req.file.path;
+      const workbook = xlsx.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const sheetData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+  
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+  
+        const batchSize = 100; // Number of rows per batch
+        for (let i = 0; i < sheetData.length; i += batchSize) {
+          const batch = sheetData.slice(i, i + batchSize);
+  
+          // Prepare the data for insertion
+          const values = batch.map(row => [
+            row.id,
+            row.name,
+            row.grade_id,
+            row.year_id,
+            row.course_id,
+          ]);
+  
+          // Generate placeholders for the query
+          const placeholders = values
+            .map(
+              (_, index) =>
+                `($${index * 5 + 1}, $${index * 5 + 2}, $${index * 5 + 3}, $${index * 5 + 4}, $${index * 5 + 5})`
+            )
+            .join(", ");
+  
+          // Flatten the values array for query parameters
+          const flatValues = values.flat();
+  
+          // Insert into the database
+          await client.query(
+            `INSERT INTO class (id, name, grade_id, year_id, course_id) VALUES ${placeholders}`,
+            flatValues
+          );
+        }
+  
+        await client.query("COMMIT");
+        res.status(200).json({ message: "Data inserted successfully!" });
+      } catch (error) {
+        await client.query("ROLLBACK");
+        console.error(error);
+        res.status(500).json({ error: "Failed to insert data" });
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Error processing file" });
+    }
+  });
 
 // Start Server
 app.listen(port, () => {
