@@ -32,8 +32,8 @@ app.get('/api/students', async (req, res) => {
     let query = `SELECT STUDENT.*, year_id, grade_id FROM STUDENT 
         JOIN CLASS ON CLASS.id = STUDENT.class_id
         JOIN SCHOOL_YEAR ON SCHOOL_YEAR.id = CLASS.year_id
-        JOIN GRADE ON GRADE.id = CLASS.grade_id`;
-
+        JOIN GRADE ON GRADE.id = CLASS.grade_id
+        ORDER BY STUDENT.name`;
     try {
         const result = await pool.query(query);
         res.json(result.rows);
@@ -238,6 +238,19 @@ app.post("/api/upload/students", upload.single("file"), async (req, res) => {
   } catch (error) {
     console.error("File Processing Error:", error);
     res.status(500).json({ error: "Error processing file" });
+  }
+});
+
+app.post("/api/mark-attendance", async (req, res) => {
+  const { ra, userId } = req.body;
+  const command = `insert into attendance (date, time, student_ra, user_id) values(current_date, current_time, ${ra}, ${userId})`
+
+  try {
+    const result = await pool.query(command);
+    res.status(200).json({ message: "Data inserted successfully!" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database query failed' });
   }
 });
 
