@@ -281,6 +281,32 @@ app.get("/api/attendances", async (req, res) => {
   }
 });
 
+app.get("/api/attendances", async (req, res) => {
+  const { startDate, endDate, classId } = req.query
+
+  let query = `select attendance.date "Data", attendance.time at time zone 'Brazil/East' "Horário", student.ra "RA do Aluno", student.name "Nome do Aluno", class.name "Nome da Sala" from attendance 
+  join student on student.ra = attendance.student_ra 
+  join class on class.id = student.class_id
+  where '${startDate}' <= date and date <= '${endDate}'`
+
+  if (classId) {
+    query += ` and class.id = '${classId}'`
+  }
+
+  query += "order by class.name, student.name, attendance.date"
+
+  console.log(query);
+  
+
+  try {
+    const result = await pool.query(query);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Database query failed' });
+  }
+})
+
 // Start Server
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
